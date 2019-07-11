@@ -8,19 +8,59 @@ classdef ExperimentalSystem<handle
         CsvFilePath
     end
     
+    properties(Constant)
+        %use constants to avoid typos !!!
+        SPANNUNG = "Spannung";
+        STROM = "Strom";
+        TEMP_ANOLYT = "Temperatur Anolyt";
+        TEMP_KATOLYT = "Temperatur Katolyt";
+        FLOW_ANOLYT = "Flowrate Anolyt";
+        FLOW_KATOLYT = "Flowrate Katolyt";
+        OCV = "OCV";
+        LEISTUNG_BATTERIE = "Flowrate Anolyt";
+        SOC = "SOC";
+    end 
+    
     methods
         function obj = ExperimentalSystem()
             %EXPERIMENTALSYSTEM Construct an instance of this class
             %   Detailed explanation goes here
             obj.RFBC = RFBConnection("141.76.14.122",502, 1, 1);
-            mKeys =  ["Spannung", "Strom", "Anolyt Temp", "Katolyt Temp", "Anolyt Flowrate", "Katolyt Flowrate", "OCV", "Batterie Leistung", "SOC"];
+            mKeys =  [
+                ExperimentalSystem.SPANNUNG,...
+                ExperimentalSystem.STROM,...
+                ExperimentalSystem.TEMP_ANOLYT,...
+                ExperimentalSystem.TEMP_KATOLYT,...
+                ExperimentalSystem.FLOW_ANOLYT,...
+                ExperimentalSystem.FLOW_KATOLYT,...
+                ExperimentalSystem.OCV,...
+                ExperimentalSystem.LEISTUNG_BATTERIE,...
+                ExperimentalSystem.SOC
+            ];
             obj.MeasurementStorage = MeasurementStorage(mKeys);
             obj.CsvFilePath = datestr(now,'yyyy-mm-ddTHH-MM-SS')+".csv";
             obj.appendOnCsvFile(obj.MeasurementStorage.formatCsvHeader());
-            obj.runMeasurementWriter();
+            obj.runMeasurements();
         end
         
-        function runMeasurementWriter(obj)
+        function runExperiment(obj, loadCurve)
+            %startup check (is WR ready) 
+            %set WR Max values
+            %while ! curve ended
+            %    set constant power BMS
+            %    set current or voltage WR
+            %shutdown (disable load and WR)
+            %stop battery
+        end
+        function runControlRoutine(obj)
+            %while true 
+            %   check errors MB
+            %   check critical value MB
+            %   check wanted current WR (check last updated)
+            %   if critical
+            %       shutdown
+        end
+        function runMeasurements(obj)
             t = timer;
             t.ExecutionMode = "fixedRate";
             t.Period = 0.5;
@@ -35,15 +75,32 @@ classdef ExperimentalSystem<handle
         end
 
         function singleMeasurement(obj)
-            obj.RFBC.getBatteryVoltage(@(val)(obj.MeasurementStorage.updateValue("Spannung", val)));
-            obj.RFBC.getBatteryCurrent(@(val)(obj.MeasurementStorage.updateValue("Strom", val)));
-            obj.RFBC.getAnolytTemp(@(val)(obj.MeasurementStorage.updateValue("Anolyt Temp", val)));
-            obj.RFBC.getKatolytTemp(@(val)(obj.MeasurementStorage.updateValue("Katolyt Temp", val)));
-            obj.RFBC.getAnolytFlowrate(@(val)(obj.MeasurementStorage.updateValue("Anolyt Flowrate", val)));
-            obj.RFBC.getKatolytFlowrate(@(val)(obj.MeasurementStorage.updateValue("Katolyt Flowrate", val)));
-            obj.RFBC.getOpenCircuitVoltage(@(val)(obj.MeasurementStorage.updateValue("OCV", val)));
-            obj.RFBC.getBatteryPower(@(val)(obj.MeasurementStorage.updateValue("Batterie Leistung", val)));
-            obj.RFBC.getSOCRelative(@(val)(obj.MeasurementStorage.updateValue("SOC", val)));
+            obj.RFBC.getBatteryVoltage(...
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.SPANNUNG, val)));
+            
+            obj.RFBC.getBatteryCurrent(...
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.STROM, val)));
+            
+            obj.RFBC.getAnolytTemp(...
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.TEMP_ANOLYT, val)));
+            
+            obj.RFBC.getKatolytTemp(...
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.TEMP_KATOLYT, val)));
+            
+            obj.RFBC.getAnolytFlowrate(...
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.FLOW_ANOLYT, val)));
+            
+            obj.RFBC.getKatolytFlowrate(...
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.FLOW_KATOLYT, val)));
+            
+            obj.RFBC.getOpenCircuitVoltage(...
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.OCV, val)));
+            
+            obj.RFBC.getBatteryPower(...
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.LEISTUNG_BATTERIE, val)));
+            
+            obj.RFBC.getSOCRelative(...
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.SOC, val)));
             
             line = obj.MeasurementStorage.formatCsvLine();
             obj.appendOnCsvFile(line);
