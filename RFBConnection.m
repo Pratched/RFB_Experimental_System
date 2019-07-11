@@ -1,3 +1,4 @@
+
 classdef RFBConnection < MBUDPConnection
     %RFBCONNECTION Implementation of the functions used to controll the
     %Schmid RFB over modbus.

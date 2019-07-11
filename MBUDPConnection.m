@@ -33,6 +33,14 @@ classdef MBUDPConnection < handle
             delete(obj.UDPConnection);
             disp("UDP Connection closed")
         end
+        
+        function bytes = swapByteOrder(~, bytes)
+            %SWAPBYTEORDER Swaps bytes in a byte array according to the
+            %Modbus specification.
+            %   Swaps bytes every 2 bytes (register length =16bit) ABCD ->
+            %   BADC
+            bytes = typecast(swapbytes(typecast(bytes, "uint16")), "uint8");
+        end
     end
     
     methods(Access=protected)
@@ -165,8 +173,8 @@ classdef MBUDPConnection < handle
                 % check if response is indicating an error
                 assert( bitget(data(8), 8) == 0)
                 
-                disp("data")
-                disp(data)
+                %disp("data")
+                %disp(data)
                 
                 try    
                     responseCB = obj.PendingRequests(tid);
@@ -196,8 +204,8 @@ classdef MBUDPConnection < handle
             %   response.
             obj.PendingRequests(tid) = rawResponseCb;
             fwrite(obj.UDPConnection, requestBytes);
-            disp("Bytes written at UDP Connection")
-            disp(requestBytes)
+            %disp("Bytes written at UDP Connection")
+            %disp(requestBytes)
             
             % schedule response timeout
             t = timer;
@@ -248,13 +256,7 @@ classdef MBUDPConnection < handle
              
         end
         
-        function bytes = swapByteOrder(~, bytes)
-            %SWAPBYTEORDER Swaps bytes in a byte array according to the
-            %Modbus specification.
-            %   Swaps bytes every 2 bytes (register length =16bit) ABCD ->
-            %   BADC
-            bytes = typecast(swapbytes(typecast(bytes, "uint16")), "uint8");
-        end
+
     end
 end
 
