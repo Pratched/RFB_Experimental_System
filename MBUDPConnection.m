@@ -13,7 +13,6 @@ classdef MBUDPConnection < handle
     methods(Access=public)
          function obj = MBUDPConnection(host, port, unitID, responseTimeOut)
              u = udp(host, port);
-             u.TimeOut = 2;
              u.BytesAvailableFcnCount = 7;
              u.BytesAvailableFcnMode = "byte";
              u.BytesAvailableFcn = @obj.onReceivedHeader;
@@ -24,6 +23,7 @@ classdef MBUDPConnection < handle
              obj.NextTID = 1337;
              obj.UnitID = unitID;
              obj.PendingRequests = containers.Map('KeyType', 'int32','ValueType', 'any');
+             obj.RequestTimes = containers.Map('KeyType', 'int32','ValueType', 'double');
              obj.ResponseTimeout = responseTimeOut;
          end
 
@@ -206,6 +206,8 @@ classdef MBUDPConnection < handle
             fwrite(obj.UDPConnection, requestBytes);
             %disp("Bytes written at UDP Connection")
             %disp(requestBytes)
+            
+            
             
             % schedule response timeout
             t = timer;

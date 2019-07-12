@@ -78,7 +78,7 @@ classdef SerialMessage<handle
                 sprintf("%15s: %d", "PropertyId", obj.PropertyId),...
                 sprintf("%15s: 0x%s - %.4g", "PropertyData", sprintf("%02x", obj.PropertyDataBytes), parsedData),...
             ];
-            str = strjoin(lines, newline);
+            str = strjoin(lines, newline)+newline;
         end
         
         function str = serviceFlagsHuman(obj)
@@ -152,7 +152,7 @@ classdef SerialMessage<handle
             
             [frameFlags, srcAddress, destAddress] = SerialMessage.parseHeader(headerBytes);
             dataLen = SerialMessage.parseDataLength(headerBytes);
-            
+
             dataBytes = msgBytes(15:14+dataLen);
             checksumBytes = msgBytes(14+dataLen+1:14+dataLen+2);
             
