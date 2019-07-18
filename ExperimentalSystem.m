@@ -5,6 +5,9 @@ classdef ExperimentalSystem<handle
     properties
         MeasurementStorage
         RFBC
+        LoadConnection
+        SourceConnection
+        Emulator
         CsvFilePath
     end
     
@@ -22,10 +25,14 @@ classdef ExperimentalSystem<handle
     end 
     
     methods
-        function obj = ExperimentalSystem()
+        function obj = ExperimentalSystem(rfbConnection, loadConnection, sourceConnection, emulator)
             %EXPERIMENTALSYSTEM Construct an instance of this class
             %   Detailed explanation goes here
-            obj.RFBC = RFBConnection("141.76.14.122",502, 1, 1);
+            obj.RFBC = rfbConnection;
+            obj.LoadConnection = loadConnection;
+            obj.SourceConnection = sourceConnection;
+            
+            
             mKeys =  [
                 ExperimentalSystem.SPANNUNG,...
                 ExperimentalSystem.STROM,...
