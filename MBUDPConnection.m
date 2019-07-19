@@ -2,6 +2,10 @@ classdef MBUDPConnection < handle
     %MBUDPCONNECTION Implementation of a Modbus UDP Connection and the MB
     %protocoll functions.
     
+    properties(Constant)
+        HEADER_LENGTH = 7; 
+    end
+    
     properties
         UDPConnection
         PendingRequests 
@@ -10,10 +14,10 @@ classdef MBUDPConnection < handle
         ResponseTimeout
     end
     
-    methods(Access=public)
+    methods(Access=public)d
          function obj = MBUDPConnection(host, port, unitID, responseTimeOut)
              u = udp(host, port);
-             u.BytesAvailableFcnCount = 7;
+             u.BytesAvailableFcnCount = MBUDPConnection.HEADER_LENGTH;
              u.BytesAvailableFcnMode = "byte";
              u.BytesAvailableFcn = @obj.onReceivedHeader;
              fopen(u);
@@ -23,8 +27,13 @@ classdef MBUDPConnection < handle
              obj.NextTID = 1337;
              obj.UnitID = unitID;
              obj.PendingRequests = containers.Map('KeyType', 'int32','ValueType', 'any');
-             obj.RequestTimes = containers.Map('KeyType', 'int32','ValueType', 'double');
              obj.ResponseTimeout = responseTimeOut;
+             
+             t = timer(); % for response timeout
+             t.ExecutionMode = "fixedRate";
+             t.TimerFcn = @obj.requestTimeoutCheck;
+             t.Period = 1;
+             start(t);
          end
 
 
@@ -145,14 +154,18 @@ classdef MBUDPConnection < handle
             obj.sendRequest(msg, tid, rawBytesCB);
         end
         
-        function cleanUpCallback(obj, tid)
-            %CLEANUPCALLBACK CB that is invoked after a request times out.
-            %   Deletes the response callback from the map and prints a
-            %   message.
-            if isKey(obj.PendingRequests, tid)
-                fprintf("WARNING: Request with tid %d did not get a response\n", tid)
-                remove(obj.PendingRequests, tid);
-            end
+        function requestTimeoutCheck(obj)
+            %REQUESTTIMEOUTCHECK CB that is invoked from timeout timer
+            %checks if any pending request hast timed out
+            
+             tids = keys(obj.PendingRequests) ;
+             requests = values(obj.PendingRequests) ;
+             for i = 1:length(D)
+                 if requests(i).elapsedTime() > obj.ResponseTimeout
+                    fprintf("WARNING: Request with tid %d did not get a response\n", tids(i))
+                    remove(obj.PendingRequests, tids(i));
+                 end
+             end
         end
         
         function onReceivedHeader(obj, ~, ~)
@@ -160,7 +173,7 @@ classdef MBUDPConnection < handle
             %more than 7 bytes. (Length of MBAP Header = 7 byte)
             %   Reads full message, does consistency checks and passes the
             %   databytes to the databyte callback.
-            while obj.UDPConnection.BytesAvailable >= 7
+            while obj.UDPConnection.BytesAvailable >= MBUDPConnection.HEADER_LENGTH
                 data = fread(obj.UDPConnection);
                 data = uint8(data);
                 dataLenBytes = data(5:6);
@@ -172,14 +185,11 @@ classdef MBUDPConnection < handle
                 assert( dataLen == length(data)-6)
                 % check if response is indicating an error
                 assert( bitget(data(8), 8) == 0)
-                
-                %disp("data")
-                %disp(data)
-                
+
                 try    
-                    responseCB = obj.PendingRequests(tid);
+                    pr = obj.PendingRequests(tid);
+                    responseCB = pr.CallbackFcn;
                     try    
-                        %data = obj.swapByteOrder(data(10:end));
                         data = data(9:end);
                     catch
                         disp("Data cannot be extracted from response");
@@ -193,7 +203,7 @@ classdef MBUDPConnection < handle
                 catch 
                     disp("Unrequested message received")
                 end
-                remove(obj.PendingRequests, tid);
+                remove(obj.PendingRequests, tid); 
             end
         end
         
@@ -202,19 +212,10 @@ classdef MBUDPConnection < handle
             %   DONT USE DIRECTLY BUT USE MB FUNCTIONS INSTEAD.
             %   Sends message bytes and schedules a time out for the
             %   response.
-            obj.PendingRequests(tid) = rawResponseCb;
+            obj.PendingRequests(tid) = PendingRequest(now, rawResponseCb);
             fwrite(obj.UDPConnection, requestBytes);
             %disp("Bytes written at UDP Connection")
             %disp(requestBytes)
-            
-            
-            
-            % schedule response timeout
-            t = timer;
-            t.ExecutionMode = "singleShot";
-            t.StartDelay = obj.ResponseTimeout;
-            t.TimerFcn = @(~,~)obj.cleanUpCallback(tid);
-            start(t);
         end
         
         

@@ -40,6 +40,10 @@ classdef RFBConnection < MBUDPConnection
             obj.requestInputRegisterRead(5076, 2, "single", responseCB)
         end
        
+        function getConstantPower(obj, responseCB)
+            obj.requestHoldingRegisterRead(1086, 2, "uint32", responseCB);
+        end
+       
         function getXtenderActive(obj, responseCB)
             obj.requestCoilRead(1134, 1, responseCB)
         end
@@ -88,6 +92,10 @@ classdef RFBConnection < MBUDPConnection
                 
         function putFlowrateAnolyt(obj, val, writeSuccessCB)
             obj.requestMultipleRegisterWrite(1062, 2, single(val),writeSuccessCB)
+        end         
+        
+        function putConstantPower(obj, val, writeSuccessCB)
+            obj.requestMultipleRegisterWrite(1086, 2, uint32(val),writeSuccessCB)
         end
         
         function putButtonStart(obj, value, writeSuccessCB)
