@@ -16,11 +16,11 @@ classdef MeasurementStorage<handle
             obj.ValueTimeout = valueTimeout;
             
             obj.ValueMap = containers.Map('KeyType', 'char','ValueType', 'any');
-            obj.ValueUpdateTimes = containers.Map('KeyType', 'char','ValueType', 'single');
+            obj.ValueUpdateTimes = containers.Map('KeyType', 'char','ValueType', 'double');
             
             for i = 1:length(measurementKeys)
                 obj.ValueMap(measurementKeys(i)) = 0.0; % initialize with 0 
-                obj.ValueUpdateTimes(measurementKeys(i)) = 0.0; % initialize with 0 
+                obj.ValueUpdateTimes(measurementKeys(i)) = now; % initialize with 0 
             end
             obj.OrderedKeys = measurementKeys;
         end
@@ -34,6 +34,9 @@ classdef MeasurementStorage<handle
         end
         
         function value = getValueChecked(obj, key)
+            assert(isKey(obj.ValueMap,key))
+            assert(isKey(obj.ValueUpdateTimes,key))
+            
             updateTime = obj.ValueUpdateTimes(key);
             if(etime(datevec(now), datevec(updateTime)) > obj.ValueTimeout)
                 throw(MException(Exceptions.VALUE_TIMEOUT_EXCEPTION, "Last update is older than specified time frame"));

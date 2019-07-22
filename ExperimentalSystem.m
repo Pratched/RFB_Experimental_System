@@ -9,6 +9,9 @@ classdef ExperimentalSystem<handle
         SourceConnection
         Emulator
         CsvFilePath
+        
+        ExperimentTimer 
+        ControlTimer
     end
     
     properties(Constant)
@@ -31,37 +34,36 @@ classdef ExperimentalSystem<handle
         
         STROM_VORGABE = "Strom Vorgabe";
         
-        VOLTAGE_MIN = 48; %DO NOT CHANGE UNLESS YOU KNOW WHAT YOURE DOING
-        VOLTAGE_MAX = 56;
+        VOLTAGE_MIN = 10; %DO NOT CHANGE UNLESS YOU KNOW WHAT YOURE DOING
+        VOLTAGE_MAX = 13;
         CURRENT_MAX = 10;
         FLOWRATE_MIN = 14;
         
-        VALUE_TIMEOUT = 3;
+        VALUE_TIMEOUT = 30; %TODO 3
         
-        ERROR_WHITELIST = [10000];
+        ERROR_WHITELIST = [10000, 10057, 10060];
     end 
     
     methods
-        function obj = ExperimentalSystem(rfbConnection, loadConnection, sourceConnection, emulator)
+        function obj = ExperimentalSystem(rfbConnection, loadConnection, sourceConnection)
             %EXPERIMENTALSYSTEM Construct an instance of this class
             %   Detailed explanation goes here
             obj.RFBC = rfbConnection;
             obj.LoadConnection = loadConnection;
             obj.SourceConnection = sourceConnection;
-            obj.Emulator = emulator; 
+            %obj.Emulator = emulator; 
+            
+            
                 
             mKeys =  [
                 ExperimentalSystem.STROM_VORGABE,...
-            
                 ExperimentalSystem.STROM_QUELLE,...
                 ExperimentalSystem.SPANNUNG_QUELLE,...
                 ExperimentalSystem.STROM_LAST,...
                 ExperimentalSystem.SPANNUNG_LAST,...
-                
                 ExperimentalSystem.SPANNUNG_BMS,...
                 ExperimentalSystem.STROM_BMS,...
                 ExperimentalSystem.LEISTUNG_BMS,...
-                
                 ExperimentalSystem.TEMP_ANOLYT,...
                 ExperimentalSystem.TEMP_KATOLYT,...
                 ExperimentalSystem.FLOW_ANOLYT,...
@@ -75,7 +77,22 @@ classdef ExperimentalSystem<handle
             obj.appendOnCsvFile(obj.MeasurementStorage.formatCsvHeader());
         end
         
+%         function singleStep()
+%             
+%         end
+%         
         function runExperiment(obj, currentValues, interval) 
+%             t = timer();
+%             t.Name = "Experiment-Timer";
+%             t.ExecutionMode = "fixedRate";
+%             t.Period = interval;
+%             t.TimerFcn = @(~,~)obj.singleStep();
+%             t.ErrorFcn = @(~,~)obj.systemShutdown();
+%             
+%             obj.ExperimentTimer = t;
+%             start(obj.ExperimentTimer);
+%             
+            
             %startup check (is WR ready)(Voltage between min and max)
             try
                 %check connection and disable devices               
@@ -83,9 +100,9 @@ classdef ExperimentalSystem<handle
                 obj.SourceConnection.Strom = 0;
                 obj.SourceConnection.AusgangAn = false;
                 obj.LoadConnection.Spannung = 0;
-                obj.LoadConnection.Spannung = 0;
+                obj.LoadConnection.Strom = 0;
                 obj.LoadConnection.AusgangAn = false;    
-                obj.LoadConnection.Mode = "CURR";
+                obj.LoadConnection.Mode = 'CURR';
                 
                 if any(abs(currentValues) > ExperimentalSystem.CURRENT_MAX)
                     throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Wanted current values must not exceed maximum current"));
@@ -100,24 +117,24 @@ classdef ExperimentalSystem<handle
                 
                 startTime = now;
                 for i = 1:length(currentValues)
-                    disp(datestr(now), "HH:MM:SS.FFF");
+                    disp(datestr(now, 'HH:MM:SS.FFF'))
                  
                     current = currentValues(i);
-                    power = current*obj.MeasurementStorage.getValueChecked(ExperimentalSystem.SPANNUNG_LAST);
-                    obj.RFBC.putConstantPower(power, @NOOPCB);
+%                     power = current*obj.MeasurementStorage.getValueChecked(ExperimentalSystem.SPANNUNG_LAST);
+%                     obj.RFBC.putConstantPower(power, @NOOPCB);
                     
                     obj.MeasurementStorage.updateValue(ExperimentalSystem.STROM_VORGABE, current);
                     
                     if current < 0
                         obj.SourceConnection.Strom = 0;
                         obj.SourceConnection.AusgangAn = false;
-                        obj.LoadConnection.Strom = current;
+                        obj.LoadConnection.Strom = abs(current);
                         obj.LoadConnection.AusgangAn = true;
                     else
                         obj.LoadConnection.Strom = 0;
                         obj.LoadConnection.AusgangAn = false;                        
-                        obj.SourceConnection.Strom = current;
-                        obj.SourceConnection.AusgangAn = false;
+                        obj.SourceConnection.Strom = abs(current);
+                        obj.SourceConnection.AusgangAn = true;
                     end
                     fprintf("Current set to %.4g\n", current);
                     pTime = interval*i - etime(datevec(now), datevec(startTime));
@@ -134,6 +151,7 @@ classdef ExperimentalSystem<handle
         function runControlRoutine(obj)
             t = timer;
             t.ExecutionMode = "fixedRate";
+            t.Name = "Control-Timer";
             t.Period = 1;
             t.TimerFcn = @(~,~)(obj.singleControl());
             t.ErrorFcn = @(~,~)(obj.systemShutdown());
@@ -151,6 +169,7 @@ classdef ExperimentalSystem<handle
             %if any of the errors is not white listed the system will shut
             %down
             if any(~ismember(alarms, ExperimentalSystem.ERROR_WHITELIST))
+                disp("Alarm detected")
                 obj.systemShutdown();
             end
         end 
@@ -168,43 +187,43 @@ classdef ExperimentalSystem<handle
             
             fclose(obj.SourceConnection);
             fclose(obj.LoadConnection);
-            fclose(obj.Emulator);
+            %fclose(obj.Emulator);
         end
 
         function checkValuesInBounds(obj)
-            frKat = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.FLOW_KATOLYT);
-            frAn = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.FLOW_ANOLYT);
-            
-            if frKat < ExperimentalSystem.FLOWRATE_MIN
-                throw(MExeption(Exceptions.VALUE_OOB_EXCEPTION, "Flowrate Katolyt too low"));
-            end
-            
-            if frAn < ExperimentalSystem.FLOWRATE_MIN
-                throw(MExeption(Exceptions.VALUE_OOB_EXCEPTION, "Flowrate Anolyt too low"));
-            end
+%             frKat = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.FLOW_KATOLYT);
+%             frAn = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.FLOW_ANOLYT);
+%             
+%             if frKat < ExperimentalSystem.FLOWRATE_MIN
+%                 throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Flowrate Katolyt too low"));
+%             end
+%             
+%             if frAn < ExperimentalSystem.FLOWRATE_MIN
+%                 throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Flowrate Anolyt too low"));
+%             end
             
             spannung = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.SPANNUNG_LAST);
             stromLast = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.STROM_LAST);
             stromQuelle = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.STROM_QUELLE);
             
-            if spannung < ExperimentalSystem.SPANNUNG_MIN
-                throw(MExeption(Exceptions.VALUE_OOB_EXCEPTION, "Voltage too low"));
+            if spannung < ExperimentalSystem.VOLTAGE_MIN
+                throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Voltage too low"));
             end
             
-            if spannung > ExperimentalSystem.SPANNUNG_MAX
-                throw(MExeption(Exceptions.VALUE_OOB_EXCEPTION, "Voltage too high"));
+            if spannung > ExperimentalSystem.VOLTAGE_MAX
+                throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Voltage too high"));
             end
             
-            if stromLast > ExperimentalSystem.STROM_MAX
-                throw(MExeption(Exceptions.VALUE_OOB_EXCEPTION, "Load current too high"));
+            if stromLast > ExperimentalSystem.CURRENT_MAX
+                throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Load current too high"));
             end
             
-            if stromQuelle > ExperimentalSystem.SPANNUNG_MAX
-                throw(MExeption(Exceptions.VALUE_OOB_EXCEPTION, "Source current too high"));
+            if stromQuelle > ExperimentalSystem.CURRENT_MAX
+                throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Source current too high"));
             end
             
             if obj.LoadConnection.AusgangAn && obj.SourceConnection.AusgangAn
-                throw(MExeption(Exceptions.VALUE_OOB_EXCEPTION, "Forbidden state: Load and Source must not be activated at the same time"));
+                throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Forbidden state: Load and Source must not be activated at the same time"));
             end
             
             disp("Value check success");
@@ -215,10 +234,10 @@ classdef ExperimentalSystem<handle
             obj.RFBC.getAlarms(@obj.handleAlarms);
             
             obj.RFBC.getBatteryVoltage(...
-                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.SPANNUNG, val)));
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.SPANNUNG_BMS, val)));
             
             obj.RFBC.getBatteryCurrent(...
-                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.STROM, val)));
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.STROM_BMS, val)));
             
             obj.RFBC.getAnolytTemp(...
                 @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.TEMP_ANOLYT, val)));
@@ -236,19 +255,19 @@ classdef ExperimentalSystem<handle
                 @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.OCV, val)));
             
             obj.RFBC.getBatteryPower(...
-                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.LEISTUNG_BATTERIE, val)));
+                @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.LEISTUNG_BMS, val)));
             
             obj.RFBC.getSOCRelative(...
                 @(val)(obj.MeasurementStorage.updateValue(ExperimentalSystem.SOC, val)));
             
             
-            obj.MeasurementStorage.updateValue(ExperimentalSystem.SPANNUNG_QUELLE, obj.SourceConnection.Spannung);
+            obj.MeasurementStorage.updateValue(ExperimentalSystem.SPANNUNG_QUELLE, obj.SourceConnection.SpannungMess);
             
-            obj.MeasurementStorage.updateValue(ExperimentalSystem.STROM_QUELLE, obj.SourceConnection.Strom);
+            obj.MeasurementStorage.updateValue(ExperimentalSystem.STROM_QUELLE, obj.SourceConnection.StromMess);
             
-            obj.MeasurementStorage.updateValue(ExperimentalSystem.SPANNUNG_LAST, obj.LoadConnection.Spannung);
+            obj.MeasurementStorage.updateValue(ExperimentalSystem.SPANNUNG_LAST, obj.LoadConnection.SpannungMess);
             
-            obj.MeasurementStorage.updateValue(ExperimentalSystem.STROM_LAST, obj.LoadConnection.Strom);
+            obj.MeasurementStorage.updateValue(ExperimentalSystem.STROM_LAST, obj.LoadConnection.StromMess);
             
             %checks measurements
             obj.checkValuesInBounds();
@@ -257,11 +276,11 @@ classdef ExperimentalSystem<handle
             %it is safe to substract the two currents here because it is
             %checked that load and source are not activated at the same
             %time
-            current = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.STROM_QUELLE) - obj.MeasurementStorage.getValueChecked(ExperimentalSystem.STROM_LAST);
-            
-            obj.Emulator.setValues(...
-                obj.MeasurementStorage.getValueChecked(ExperimentalSystem.SPANNUNG_LAST),...
-                current);
+%             current = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.STROM_QUELLE) - obj.MeasurementStorage.getValueChecked(ExperimentalSystem.STROM_LAST);
+%             
+%             obj.Emulator.setValues(...
+%                 obj.MeasurementStorage.getValueChecked(ExperimentalSystem.SPANNUNG_LAST),...
+%                 current);
            
             %output measurements
             line = obj.MeasurementStorage.formatCsvLine();

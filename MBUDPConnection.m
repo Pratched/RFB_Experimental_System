@@ -30,8 +30,9 @@ classdef MBUDPConnection < handle
              obj.ResponseTimeout = responseTimeOut;
              
              t = timer(); % for response timeout
+             t.Name = "Response-Timer";
              t.ExecutionMode = "fixedRate";
-             t.TimerFcn = @obj.requestTimeoutCheck;
+             t.TimerFcn = @(~,~)obj.requestTimeoutCheck();
              t.Period = 1;
              start(t);
          end
@@ -160,8 +161,9 @@ classdef MBUDPConnection < handle
             
              tids = keys(obj.PendingRequests) ;
              requests = values(obj.PendingRequests) ;
-             for i = 1:length(D)
-                 if requests(i).elapsedTime() > obj.ResponseTimeout
+             for i = 1:length(tids)
+                 requ = requests(i);
+                 if requ.elapsedTime() > obj.ResponseTimeout
                     fprintf("WARNING: Request with tid %d did not get a response\n", tids(i))
                     remove(obj.PendingRequests, tids(i));
                  end
