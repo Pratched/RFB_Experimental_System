@@ -33,16 +33,13 @@ classdef WREmulator<handle
             s1 = serial(xcomPortName);
             s1.Baudrate = WREmulator.BAUDRATE;
             s1.Parity = WREmulator.PARITY;
-            s1.InputBufferSize = 256000;
-            %s1.BytesAvailableFcnCount = 14;
-            %s1.BytesAvailableFcnMode = 'byte';
-            %s1.BytesAvailableFcn = @obj.onRequest;
+            s1.InputBufferSize = 2048;
             obj.XcomPort = s1;
             
             s2 = serial(managementPortName);
             s2.Baudrate = WREmulator.BAUDRATE;
             s2.Parity = WREmulator.PARITY;
-            s2.InputBufferSize = 256000;
+            s2.InputBufferSize = 2048;
             s2.BytesAvailableFcnCount = 14;
             s2.BytesAvailableFcnMode = 'byte';
             s2.BytesAvailableFcn = @obj.onRequest;
@@ -72,6 +69,20 @@ classdef WREmulator<handle
             disp("BMS serial port closed")
         end
         
+        function setValues(obj, voltage, current)
+            obj.DCVoltage = voltage; 
+            obj.DCCurrent = current;
+            
+            obj.ACOutputPower = 170;
+            obj.ACInputPower = current*voltage / 0.9; %emulate conversion loss
+            if current >= 0
+                obj.OperatingMode = 2;
+            else
+                obj.OperatingMode = 4;
+            end
+            obj.InverterActive = 1;
+        end
+        
         function fopen(obj)
             fopen(obj.XcomPort);
             disp("Xcom serial port opened")
@@ -93,15 +104,16 @@ classdef WREmulator<handle
         end
         
         function response = emulateWriteResponse(obj, request)
-            %optionela st current and discharge current
+            %optional st current and discharge current
             if request.ObjectId == 1138
                 obj.DCCurrentWanted = typecast(request.PropertyDataBytes, "single");
                 fprintf("%.4g Current SET", obj.DCCurrentWanted)
                 request = SerialMessage.fromBytes(uint8([170 ,    0  ,  1  ,   0   ,  0  ,  0   ,101  ,   0  ,   0  ,   0 ,   14   ,  0 ,  115  , 121  ,   0   ,  2  ,   2 ,    0 ,  114  ,   4  ,   0 , 0  ,  13 ,    0   ,  0 ,    0 ,    0  ,   0 ,  134 ,   10]));
             end    
            
+            %TODO comment out in real use
             obj.sendMessage(obj.XcomPort, request); %forward to WR
-            m = obj.receiveMessage(obj.XcomPort); %drop response
+            obj.receiveMessage(obj.XcomPort); %drop response
             
             response = SerialMessage(...
                 SerialMessage.FRAME_FLAGS_RESPONSE,...
