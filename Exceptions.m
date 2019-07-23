@@ -9,6 +9,7 @@ classdef Exceptions
         VALUE_TIMEOUT_EXCEPTION = "Measurement:ValueTimeout";
         
         VALUE_OOB_EXCEPTION = "Experiment:ValueOutOfBounds";
+        STATE_EXCEPTION = "Experiment:StateException";
     end
 end
 
