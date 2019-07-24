@@ -39,9 +39,13 @@ classdef MBUDPConnection < handle
 
 
         function delete(obj)
-            fclose(obj.UDPConnection);
+            obj.close();
             delete(obj.UDPConnection);
-            disp("UDP Connection closed")
+        end
+        
+        function close(obj)
+            fclose(obj.UDPConnection);
+            disp("UDP Connection closed");
         end
         
         function bytes = swapByteOrder(~, bytes)
@@ -162,10 +166,15 @@ classdef MBUDPConnection < handle
              tids = keys(obj.PendingRequests) ;
              requests = values(obj.PendingRequests) ;
              for i = 1:length(tids)
-                 requ = requests(i);
-                 if requ.elapsedTime() > obj.ResponseTimeout
-                    fprintf("WARNING: Request with tid %d did not get a response\n", tids(i))
-                    remove(obj.PendingRequests, tids(i));
+                 try 
+                     requ = cast(requests(i), PendingRequest);
+                     fprintf("ET: %f\n",requ.elapsedTime())
+                     if requ.elapsedTime() > obj.ResponseTimeout
+                        fprintf("WARNING: Request with tid %d did not get a response\n", tids(i))
+                        remove(obj.PendingRequests, tids(i));
+                     end
+                 catch e
+                     disp("WARNING: Error trying to delete timed out request")
                  end
              end
         end

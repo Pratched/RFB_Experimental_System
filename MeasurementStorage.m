@@ -39,7 +39,7 @@ classdef MeasurementStorage<handle
             
             updateTime = obj.ValueUpdateTimes(key);
             if(etime(datevec(now), datevec(updateTime)) > obj.ValueTimeout)
-                throw(MException(Exceptions.VALUE_TIMEOUT_EXCEPTION, "Last update is older than specified time frame"));
+                throw(MException(Exceptions.VALUE_TIMEOUT_EXCEPTION, sprintf("Last update is older than specified time frame: %s", key)));
             end
             
             value = obj.ValueMap(key);
@@ -48,7 +48,7 @@ classdef MeasurementStorage<handle
         function line = formatCsvLine(obj)
             values = [];
             for i = 1:length(obj.OrderedKeys)
-                values = [values; obj.getValueChecked(obj.OrderedKeys(i))];
+                values = [values; obj.ValueMap(obj.OrderedKeys(i))];
             end
             
             line = datestr(now,'yyyy-mm-ddTHH:MM:SS.fff');
@@ -62,7 +62,7 @@ classdef MeasurementStorage<handle
         function str = statusToStr(obj)
             lines = [];
             for i = 1:length(obj.OrderedKeys)
-               lines = [lines; sprintf("  %20s: %.5g", obj.OrderedKeys(i),  obj.getValueChecked(obj.OrderedKeys(i)))];
+               lines = [lines; sprintf("  %20s: %.5g", obj.OrderedKeys(i),  obj.ValueMap(obj.OrderedKeys(i)))];
             end
             
             str = sprintf("STATUS: "+newline+strjoin(cellstr(lines), newline)+newline+newline);

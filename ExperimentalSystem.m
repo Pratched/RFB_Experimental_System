@@ -12,6 +12,10 @@ classdef ExperimentalSystem<handle
         
         ControlTimer
         State
+        
+        Verbose
+        
+        PumpErrors;
     end
     
     properties(Constant)
@@ -34,29 +38,37 @@ classdef ExperimentalSystem<handle
         
         STROM_VORGABE = "Strom Vorgabe";
         
-        VOLTAGE_MIN = 10; %DO NOT CHANGE UNLESS YOU KNOW WHAT YOURE DOING
-        VOLTAGE_MAX = 13;
+        STROM_VORGABE_BMS = "Strom Vorgabe BMS";
+        
+        VOLTAGE_MIN = 50; %DO NOT CHANGE UNLESS YOU KNOW WHAT YOURE DOING
+        VOLTAGE_MAX = 60;
         CURRENT_MAX = 10;
-        FLOWRATE_MIN = 14;
+        FLOWRATE_MIN = 8;
         
-        VALUE_TIMEOUT = 3; 
+        VALUE_TIMEOUT = 5; 
         
-        ERROR_WHITELIST = [10000, 10057, 10060];
+        ERROR_WHITELIST = [10000, 10057, 10060 : 10063, 10045, 10046, 10050 ,10002 ,10019, 10020, 10015, 10016];
         
-        IDLE_RUN_POWER = 500; %Emulated Power used for Idle runs
-        IDLE_PUMPING_TIME = 15;
+        IDLE_RUN_POWER = 1000; %Emulated Power used for Idle runs
+        IDLE_RUN_CURRENT = 8.888;
+        IDLE_PUMPING_TIME = 45;
+        PUMP_ERROR_CYCLES = 3;
     end 
     
     methods
-        function obj = ExperimentalSystem(rfbConnection, loadConnection, sourceConnection)
+        function obj = ExperimentalSystem(rfbConnection, loadConnection, sourceConnection, emulator, verbose)
             %EXPERIMENTALSYSTEM Construct an instance of this class
             %   Detailed explanation goes here
             obj.RFBC = rfbConnection;
             obj.LoadConnection = loadConnection;
             obj.SourceConnection = sourceConnection;
-            %obj.Emulator = emulator; 
+            obj.Emulator = emulator; 
             
             obj.State = States.STANDBY;
+            
+            obj.Verbose = verbose;
+            
+            obj.PumpErrors = 0;
             
             mKeys =  [
                 ExperimentalSystem.STROM_VORGABE,...
@@ -83,10 +95,8 @@ classdef ExperimentalSystem<handle
         function runExperiment(obj, currentValues, interval) 
             %startup check (is WR ready)(Voltage between min and max)
             try
+                logExp("Doing prechecks");
                 %prechecks
-                if obj.State ~=States.STANDBY 
-                    throw(MException(Exceptions.STATE_EXCEPTION, "System must be in Standby mode when experiment is started"));
-                end
                 if any(abs(currentValues) > ExperimentalSystem.CURRENT_MAX)
                     throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Wanted current values must not exceed maximum current"));
                 end
@@ -109,30 +119,35 @@ classdef ExperimentalSystem<handle
                 obj.LoadConnection.Spannungsbegrenzung = ExperimentalSystem.VOLTAGE_MIN;
                 obj.SourceConnection.Spannung =  ExperimentalSystem.VOLTAGE_MAX;
                 
+                if obj.State ~=States.STANDBY 
+                    throw(MException(Exceptions.STATE_EXCEPTION, "System must be in Standby mode when experiment is started"));
+                end
+                
+                logExp("System startup");
                 obj.State = States.STARTUP;
                 
                 obj.RFBC.putConstantPower(ExperimentalSystem.IDLE_RUN_POWER, @NOOPCB);
-                obj.RFBC.putStartButton(1, @NOOPCB);
-                
-                disp("Pumping electrolytes in idle mode");
+                obj.RFBC.putButtonStart(1, @NOOPCB);
+%                 
+                logExp("Pumping electrolytes in idle mode");
                 pause(ExperimentalSystem.IDLE_PUMPING_TIME);
                 
                 %check rfb conditions
                 obj.checkValuesInBounds();
+                
+                logExp("Experiment running");
                 obj.State = States.RUNNING;
 
                 startTime = now;
                 for i = 1:length(currentValues)
-                    disp(datestr(now, 'HH:MM:SS.FFF'))
                     if obj.State ~= States.RUNNING
-                       disp("System is not in running mode, values must not be set.\nExperiment aborted.")
-                       break;
+                       throw(MException(Exceptions.STATE_EXCEPTION, "System is not in running mode, values must not be set.\nExperiment aborted."));
                     end
                  
                     current = currentValues(i);
                     power = current*obj.MeasurementStorage.getValueChecked(ExperimentalSystem.SPANNUNG_LAST);
-                    obj.RFBC.putConstantPower(power, @NOOPCB);
-                    
+                    obj.RFBC.putConstantPower(abs(max(power,ExperimentalSystem.IDLE_RUN_POWER)), @NOOPCB);
+                 
                     obj.MeasurementStorage.updateValue(ExperimentalSystem.STROM_VORGABE, current);
                     
                     if current < 0
@@ -152,13 +167,16 @@ classdef ExperimentalSystem<handle
                         obj.SourceConnection.AusgangAn = false;
                     end
                     
-                    fprintf("Current set to %.4g\n", current);
+                    logExp(sprintf("Current set to %.4g", current));
                     pTime = interval*i - etime(datevec(now), datevec(startTime));
                     pause(pTime); 
                 end   
+                
+                logExp("Experiment ended successfuly");
                 obj.systemShutdown();
                 
             catch e
+                logExp("Error in main routine");
                 obj.systemShutdown();
                 rethrow(e);
             end
@@ -183,61 +201,86 @@ classdef ExperimentalSystem<handle
         end
         
         function handleAlarms(obj, alarms)
+          
             %add unimportant Errors to the white list alarms if necessary
             %if any of the errors is not white listed the system will shut
             %down
+            
+            if obj.Verbose
+                alarmStr = sprintf("%d,", alarms);
+                logExp(sprintf("Alarms checked. Active alarms: %s", alarmStr));
+            end
+            
+            
             if any(~ismember(alarms, ExperimentalSystem.ERROR_WHITELIST))
-                disp("Alarm detected")
+                logExp("Critical alarms detected");
                 obj.systemShutdown();
             end
         end 
         
         function systemShutdown(obj)
-            if any(obj.State == [States.RUNNING, States.STARTUP]) %if system is running or in startup mode enter shutdown routine
-                disp("Experimental System shutdown");
-                obj.State = States.SHUTDOWN;
+            enterState = obj.State;
+            if any(obj.State == [States.RUNNING, States.STARTUP, States.STANDBY]) %if system is running or in startup mode enter shutdown routine
+                logExp("Experimental System shutdown");
+                obj.State = States.SHUTDOWN; 
+                stop(obj.ControlTimer);
+                
+                current = ExperimentalSystem.IDLE_RUN_CURRENT;
+
+                obj.Emulator.setValues(...
+                    obj.MeasurementStorage.getValueChecked(ExperimentalSystem.SPANNUNG_LAST),...
+                    current);
                 
                 obj.RFBC.putConstantPower(ExperimentalSystem.IDLE_RUN_POWER, @NOOPCB);
+                
+                if any(enterState == [States.RUNNING, States.STARTUP])
+                    obj.SourceConnection.AusgangAn = false;
+                    obj.SourceConnection.Spannung = 0;
+                    obj.SourceConnection.Strom = 0;
 
-                obj.SourceConnection.AusgangAn = false;
-                obj.SourceConnection.Spannung = 0;
-                obj.SourceConnection.Strom = 0;
+                    obj.LoadConnection.AusgangAn = false; 
+                    obj.LoadConnection.Spannung = 0;
+                    obj.LoadConnection.Strom = 0; 
 
-                obj.LoadConnection.AusgangAn = false; 
-                obj.LoadConnection.Spannung = 0;
-                obj.LoadConnection.Strom = 0; 
+                    logExp("Pumping electrolytes in idle mode");
+                    pause(ExperimentalSystem.IDLE_PUMPING_TIME);
+                end
 
-                disp("Pumping electrolytes in idle mode")
-                pause(ExperimentalSystem.IDLE_PUMPING_TIME);
-
-                disp("Stopping RFBC");
+                logExp("Stopping RFBC");
+                obj.RFBC.putButtonStop(true, @NOOPCB);
+                obj.RFBC.putButtonStop(true, @NOOPCB);
                 obj.RFBC.putButtonStop(true, @NOOPCB);
 
-                stop(obj.ControlTimer);
-                fclose(obj.LoadConnection);
-                fclose(obj.SourceConnection);
-                fclose(obj.RFBC);
+                obj.LoadConnection.close();
+                obj.SourceConnection.close();
+                obj.RFBC.close();
                 fclose(obj.Emulator);
                 
                 obj.State = States.STOPPED;
+                logExp("System stopped");
             else
-                disp("System is already shut down or shutting down");
+                logExp("System is already shut down or shutting down");
             end
           
         end
 
         function checkValuesInBounds(obj)
-%             frKat = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.FLOW_KATOLYT);
-%             frAn = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.FLOW_ANOLYT);
-%             
-%             if frKat < ExperimentalSystem.FLOWRATE_MIN
-%                 throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Flowrate Katolyt too low"));
-%             end
-%             
-%             if frAn < ExperimentalSystem.FLOWRATE_MIN
-%                 throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Flowrate Anolyt too low"));
-%             end
-            
+            if obj.State == States.RUNNING
+                frKat = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.FLOW_KATOLYT);
+                frAn = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.FLOW_ANOLYT);
+
+                if frKat < ExperimentalSystem.FLOWRATE_MIN || frAn < ExperimentalSystem.FLOWRATE_MIN
+                    logExp("WARNING: Flowrate too low");
+                    obj.PumpErrors = obj.PumpErrors +1;
+                else
+                    obj.PumpErrors = 0;
+                end
+
+                if obj.PumpErrors >= ExperimentalSystem.PUMP_ERROR_CYCLES
+                    throw(MException(Exceptions.VALUE_OOB_EXCEPTION, sprintf("Flowrate too low for more than %d control cycles", ExperimentalSystem.PUMP_ERROR_CYCLES)));
+                end
+                    
+            end
             spannung = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.SPANNUNG_LAST);
             stromLast = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.STROM_LAST);
             stromQuelle = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.STROM_QUELLE);
@@ -262,7 +305,9 @@ classdef ExperimentalSystem<handle
                 throw(MException(Exceptions.VALUE_OOB_EXCEPTION, "Forbidden state: Load and Source must not be activated at the same time"));
             end
             
-            disp("Value check success");
+            if obj.Verbose
+                logExp("Value check success");
+            end
         end
         
         function singleControl(obj)
@@ -312,20 +357,24 @@ classdef ExperimentalSystem<handle
             %it is safe to substract the two currents here because it is
             %checked that load and source are not activated at the same
             %time
-            if any(obj.State == [States.STARTUP, STATES.SHUTDOWN])
-                current = ExperimentalSystem.IDLE_RUN_POWER / obj.MeasurementStorage.getValueChecked(ExperimentalSystem.SPANNUNG_QUELLE);
+            if any(obj.State == [States.STARTUP, States.SHUTDOWN])
+                current = ExperimentalSystem.IDLE_RUN_CURRENT;
             else
                 current = obj.MeasurementStorage.getValueChecked(ExperimentalSystem.STROM_QUELLE) - obj.MeasurementStorage.getValueChecked(ExperimentalSystem.STROM_LAST);
+                absCur = max(ExperimentalSystem.IDLE_RUN_CURRENT, abs(current));
+                current = sign(current) * absCur;
             end
             obj.Emulator.setValues(...
                 obj.MeasurementStorage.getValueChecked(ExperimentalSystem.SPANNUNG_LAST),...
                 current);
+
+
            
             %output measurements
             line = obj.MeasurementStorage.formatCsvLine();
             obj.appendOnCsvFile(line);
             
-            disp(obj.MeasurementStorage.statusToStr());
+            %disp(obj.MeasurementStorage.statusToStr());
         end
        
     end

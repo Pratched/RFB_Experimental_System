@@ -73,8 +73,7 @@ classdef WREmulator<handle
             obj.DCVoltage = voltage; 
             obj.DCCurrent = current;
             
-            obj.ACOutputPower = 170;
-            obj.ACInputPower = current*voltage / 0.9; %emulate conversion loss
+            obj.ACInputPower = current*voltage / 0.9 /1000; %emulate conversion loss
             if current >= 0
                 obj.OperatingMode = 2;
             else
@@ -107,13 +106,13 @@ classdef WREmulator<handle
             %optional st current and discharge current
             if request.ObjectId == 1138
                 obj.DCCurrentWanted = typecast(request.PropertyDataBytes, "single");
-                fprintf("%.4g Current SET", obj.DCCurrentWanted)
+                fprintf("Emulator Wanted Current set: %.4g \n", obj.DCCurrentWanted)
                 request = SerialMessage.fromBytes(uint8([170 ,    0  ,  1  ,   0   ,  0  ,  0   ,101  ,   0  ,   0  ,   0 ,   14   ,  0 ,  115  , 121  ,   0   ,  2  ,   2 ,    0 ,  114  ,   4  ,   0 , 0  ,  13 ,    0   ,  0 ,    0 ,    0  ,   0 ,  134 ,   10]));
             end    
            
             %TODO comment out in real use
-            obj.sendMessage(obj.XcomPort, request); %forward to WR
-            obj.receiveMessage(obj.XcomPort); %drop response
+%             obj.sendMessage(obj.XcomPort, request); %forward to WR
+%             obj.receiveMessage(obj.XcomPort); %drop response
             
             response = SerialMessage(...
                 SerialMessage.FRAME_FLAGS_RESPONSE,...
@@ -138,34 +137,31 @@ classdef WREmulator<handle
             end    
              
             propertyDataBytes = []; 
-            if request.ObjectId == 3004 && request.PropertyId == 1
+
+            %...otherwise create response from last known values
+   
+            if request.ObjectId == 3000 && request.PropertyId == 1
+                propertyDataBytes = typecast(single(obj.DCVoltage), "uint8");
+            elseif request.ObjectId == 3004 && request.PropertyId == 1
                 propertyDataBytes = typecast(single(obj.DCCurrentWanted), "uint8");
                 
             elseif request.ObjectId == 3005 && request.PropertyId == 1
-                propertyDataBytes = typecast(single(obj.DCCurrentWanted), "uint8");
+                propertyDataBytes = typecast(single(obj.DCCurrent), "uint8");
+                
+            elseif request.ObjectId == 3028 && request.PropertyId == 1
+                propertyDataBytes = typecast(uint16(obj.OperatingMode), "uint8");
+                
+            elseif request.ObjectId == 3049 && request.PropertyId == 1
+                propertyDataBytes = typecast(uint16(obj.InverterActive), "uint8");
+                
+            elseif request.ObjectId == 3136 && request.PropertyId == 1
+                propertyDataBytes = typecast(single(obj.ACOutputPower), "uint8");
+                
+            elseif request.ObjectId == 3137 && request.PropertyId == 1
+                propertyDataBytes = typecast(single(obj.ACInputPower), "uint8");
             else
                 throw(MException(Exceptions.RESPONSE_NOT_DEFINED_EXCEPTION, ""));
             end
-            %...otherwise create response from last known values
-%    
-%             if request.ObjectId == 3000 && request.PropertyId == 1
-%                 propertyDataBytes = typecast(single(obj.DCVoltage), "uint8");
-% 
-%                 
-%             elseif request.ObjectId == 3028 && request.PropertyId == 1
-%                 propertyDataBytes = typecast(uint16(obj.OperatingMode), "uint8");
-%                 
-%             elseif request.ObjectId == 3049 && request.PropertyId == 1
-%                 propertyDataBytes = typecast(uint16(obj.InverterState), "uint8");
-%                 
-%             elseif request.ObjectId == 3136 && request.PropertyId == 1
-%                 propertyDataBytes = typecast(single(obj.ACOutputPower), "uint8");
-%                 
-%             elseif request.ObjectId == 3137 && request.PropertyId == 1
-%                 propertyDataBytes = typecast(single(obj.ACInputPower), "uint8");
-%             else
-%                 throw(MException(Exceptions.RESPONSE_NOT_DEFINED_EXCEPTION, ""));
-%             end
             
             response = SerialMessage(...
                 SerialMessage.FRAME_FLAGS_RESPONSE,...
@@ -210,12 +206,13 @@ classdef WREmulator<handle
         function onRequest(obj,  ~, ~)
             while obj.ManagementPort.BytesAvailable >= 14
                request = obj.receiveMessage(obj.ManagementPort);
-               disp("Request:")
-               disp(request.toStr())
-               
+%                disp("Request:")
+%                disp(request.toStr())
+%                
                assert(request.ServiceFlags == 0) %all messages received must be requests
                
                fwdEmu = [];
+
                try
                    response = obj.emulateResponse(request);
                    fwdEmu = "Emulated";
@@ -231,13 +228,14 @@ classdef WREmulator<handle
                
                obj.sendMessage(obj.ManagementPort, response);
                
-               % print response
-               disp(sprintf("%s Reponse:", fwdEmu));
-               if ismember(response.ObjectId, [3000, 3004, 3005]) && response.ServiceFlags == 2
-                   disp(response.toStr("single"))
-               else
-                   disp(response.toStr())
-               end
+               
+%                print response
+%                disp(sprintf("%s Reponse:", fwdEmu));
+%                if ismember(response.ObjectId, [3000, 3004, 3005]) && response.ServiceFlags == 2
+%                    disp(response.toStr("single"))
+%                else
+%                    disp(response.toStr())
+%                end
                
                %log request and response
                ts = datestr(now,'yyyy-mm-ddTHH:MM:SS.FFF');
