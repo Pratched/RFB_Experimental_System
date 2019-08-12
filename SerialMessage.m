@@ -139,12 +139,6 @@ classdef SerialMessage<handle
                 dataBytes, SerialMessage.calculateChecksum(dataBytes)];
         end
     end
-    methods(Access = protected)
-       function propgrp = getPropertyGroups(~)
-          proplist = {'Department','JobTitle','Name'};
-          propgrp = matlab.mixin.util.PropertyGroup(proplist);
-       end
-    end
     methods(Static, Access=public)
         function obj = fromBytes(msgBytes)
             headerBytes = msgBytes(1:14);

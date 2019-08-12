@@ -14,7 +14,7 @@ classdef MBUDPConnection < handle
         ResponseTimeout
     end
     
-    methods(Access=public)d
+    methods(Access=public)
          function obj = MBUDPConnection(host, port, unitID, responseTimeOut)
              u = udp(host, port);
              u.BytesAvailableFcnCount = MBUDPConnection.HEADER_LENGTH;

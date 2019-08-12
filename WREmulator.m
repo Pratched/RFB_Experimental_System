@@ -6,10 +6,6 @@ classdef WREmulator<handle
         
         STATIC_RESPONSES = WREmulator.builtStaticResponseMap(); %static method to keep code clean
         READ_MESSAGE_RESPONSE = uint8([170, 54, 245, 1, 0, 0, 1, 0, 0, 0, 28, 0, 72, 32, 2, 1, 3, 0, 0, 0, 0, 0, 0, 0, 208, 3, 0, 0, 3, 0, 101, 0, 0, 0, 211, 168, 137, 92, 0, 0, 0, 0, 160, 112]);
-   
-        OP_MODE_INVERTER = 1;
-        OP_MODE_CHARGING = 2;
-        OP_MODE_INJECTION = 4;
     end
     
     properties
